@@ -2,7 +2,6 @@
 
 from math import pi, sqrt, atan2, cos, sin
 import numpy as np
-# from controller import *
 
 import rospy
 import tf
@@ -17,33 +16,47 @@ class positionController():
 		rospy.loginfo("Press Ctrl + C to terminate")
 
 		self.numJoints = 3
-		self.iterationNumJoints = self.numJoints - 1
 
-		self.numberOfPointsInPath = 4
-		self.iterationNumPoints = self.numberOfPointsInPath - 1
+		self.numPoints = 4
 
-		self.jointEfforts = []
-		self.joint_pubs = []
-		self.joint_rates = []
+		self.jointEfforts = [0] * self.numJoints 
+		self.joint_pubs = [0] * self.numJoints
+		self.rate = rospy.Rate(1)
 
-		self.joint_controllers = []
+		self.joint_controllers = [0] * self.numJoints
 
-		self.jointErrorWithinBounds = []
+		self.jointErrorWithinBounds = [False] * self.numJoints
 
-		self.joint_controller_parameters = [[1, 1, 1], [1, 1, 1,], [1, 1, 1]]
+		self.joint_controller_parameters = [[.5, .075, .2], [.5, .075, .2], [.2, .1, .0]]
 
-		for i in range(self.iterationNumJoints):
+		for i in range(self.numJoints):
 			
 			# Initialize publishers for each joint
 			self.jointEfforts[i] = Float64()
-			self.joint_pubs[i] = rospy.publisher("/rrp/joint"+(i+1)+"_effort_controller/command", Float64, queue_size = 10)
-			self.joint_rates = rospy.rate(10)
+			self.joint_pubs[i] = rospy.Publisher("/rrp/joint"+str(i+1)+"_effort_controller/command", Float64, queue_size = 10)
 
 			# Initialize PID controllers for each joint			
 			self.joint_controllers[i] = Controller()
 			self.joint_controllers[i].setPID(self.joint_controller_parameters[i])
 
-			self.jointErrorWithinBounds[i] = False
+		degToRad = pi / 180
+
+		# Generate path
+		self.possiblePoints = [[0, 0.77, 0.34], \
+							[-0.345, 0.425, 0.24], \
+							[-0.67, -0.245, 0.14], \
+							[0.77, 0.0, 0.39]]
+
+		self.testIKSolutions = [[90 * degToRad, 0, 0.1], \
+								[90 * degToRad, 90 * degToRad, .2], \
+								[-179.716 * degToRad, 44.468 * degToRad, .3], \
+								[0, 0 , .05]]
+		
+		self.endEffectorPath = [0] * self.numPoints
+		self.destinationsReached = [False] * self.numPoints
+
+		for i in range(self.numPoints):
+			self.endEffectorPath = self.possiblePoints[i]
 
 		# subscribe to joint messages
 		self.joint_status = JointState()
@@ -51,14 +64,7 @@ class positionController():
 		self.trajectory = list()
 		self.joint_status_sub = rospy.Subscriber("/rrp/joint_states", JointState, self.joint_state_callback)
 
-		# Generate path
-		self.endEffectorPath = [[0, 0.77, 0.34], \
-								[-0.345, 0.425, 0.24], \
-								[-0.67, -0.245, 0.14], \
-								[0.77, 0.0, 0.39]]
-
-		self.destinationsReached = [False, False, False, False]
-
+		
 		self.firstPassOnDestination = True
 		self.destinationIndex = 0
 
@@ -70,6 +76,8 @@ class positionController():
 		self.numTimesAtIteration = 0
 
 		self.goalTimesAtIteration = 20
+
+		self.jointPositions = [0] * self.numJoints
 
 
 		print("Start of tragjectory movement.")
@@ -89,20 +97,19 @@ class positionController():
 			finally:
 				# save trajectory into csv file
 				np.savetxt("trajectory.csv", np.array(self.trajectory), fmt="%f", delimiter=",")
-
-			
+				
 	
 	def run(self):
 
 		# if it is the first time through the function and the destination has not been reached yet
-		if self.firstPassOnDestination and not self.listOfDestinations[self.destinationIndex][3]:
+		if self.firstPassOnDestination and not self.destinationsReached[self.destinationIndex]:
 			
-			runFirstPassForDestination()
+			self.runFirstPassForDestination()
 
 		else:
 
 			# Run PID for each joint and check if the destination has been reached
-			destinationReached = runPIDForEachJoint()
+			destinationReached = self.runPIDForEachJoint()
 		
 			# If the destination has been reached
 			if destinationReached:
@@ -110,7 +117,7 @@ class positionController():
 				# If the robot has remained at the target for the goal number of iterations
 				if self.numTimesAtIteration >= self.goalTimesAtIteration:
 
-					runLastPassForDestination()
+					self.runLastPassForDestination()
 					
 				# Else keep counting the number of iterations we have reached the goal
 				else:
@@ -121,14 +128,15 @@ class positionController():
 				self.numTimesAtIteration = 0
 
 		# Always publish the joint efforts
-		for i in range(self.iterationNumJoints)
+		for i in range(self.numJoints):
 			self.joint_pubs[i].publish(self.jointEfforts[i])
 
 
-	def runPIDForEachJoint():
+	def runPIDForEachJoint(self):
 
 		# Calculate new joint efforts and  error bounding flags
-		for i in range(self.iterationNumJoints):
+		for i in range(self.numJoints):
+			print("Joint "+str(i))
 			controller = self.joint_controllers[i]
 						
 			# Calculate new joint effort from controller
@@ -146,26 +154,20 @@ class positionController():
 		return destinationReached
 
 
-	def runFirstPassForDestination():
-
-		# Pull destination x, y, and z out of the end effector path
-		self.destination_x = self.endEffectorPath[self.destinationIndex][1]
-		self.destination_y = self.endEffectorPath[self.destinationIndex][2]
-		self.destination_z = self.endEffectorPath[self.destinationIndex][3]
+	def runFirstPassForDestination(self):
 
 		# Calculate Inverse Kinematics of destination
-		self.jointDestinations = sampleIK(self.destination_x, self.destination_y\
-			self.destination_z)
+		self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
 
-		for controller in self.joint_controllers:
-			controller.setPoint(self.joint_controllers.index(controller))
+		for i in range(self.numJoints):
+			self.joint_controllers[i].setPoint(self.jointDestinations[i])
 
 		self.firstPassOnDestination = False
 
 		self.numTimesAtIteration = 0
 
 
-	def runLastPassForDestination():
+	def runLastPassForDestination(self):
 		# set the complete flag for the point as true
 		self.destinationsReached[self.destinationIndex] = True
 
@@ -175,45 +177,27 @@ class positionController():
 		# increment the index
 		self.destinationIndex = self.destinationIndex + 1
 
-		if self.destinationIndex >= len(self.listOfDestinations):
+		if self.destinationIndex >= self.numPoints:
 			self.trajectoryCompleteFlag = True
 
-		
-	def odom_callback(self, msg):
-		# get pose = (x, y, theta) from odometry topic
-		quarternion = [msg.pose.pose.orientation.x, \
-						msg.pose.pose.orientation.y, \
-						msg.pose.pose.orientation.z, \
-						msg.pose.pose.orientation.w]
-		(roll, pitch, yaw) = tf.transformations.euler_from_quaternion(
-			quarternion)
-		self.pose.theta = yaw
-		self.pose.x = msg.pose.pose.position.x
-		self.pose.y = msg.pose.pose.position.y
-		
-		# logging once every 100 times
-		self.logging_counter += 1
-		if self.logging_counter == 15:
-			self.logging_counter = 0
-			# save trajectory
-			self.trajectory.append([self.pose.x, self.pose.y])
-			rospy.loginfo("odom: x=" + str(self.pose.x) + \
-				"; y=" + str(self.pose.y) + "; theta=" + str(yaw))
 
-	def joint_state_callback(self, msg)
+	def joint_state_callback(self, msg):
 		# Get position for each joint
-		self.jointPositions = msg.position
+		for i in range(self.numJoints):
+			self.jointPositions[i] = float(msg.position[i])
 
 		# logging once every 100 times
 		self.logging_counter += 1
-		if self.logging_counter == 15:
+		if self.logging_counter == 100:
 			self.logging_counter = 0
 			# save trajectory
-			self.trajectory.append([self.jointPositions])
+			self.trajectory.append(self.jointPositions)
 			rospy.loginfo("Joint 1 =" + str(self.jointPositions[0]*180/pi) + \
 				"; Joint 2 = " + str(self.jointPositions[1]*180/pi) + \
 				"; Joint 3 =" + str(self.jointPositions[2]*180/pi))
 
+	def IKserverDummy(self, coordinate, pointIndex):
+		return self.testIKSolutions[pointIndex]
 
 class Controller:
 	def __init__(self, P=0.0, I=0.0, D=0.0, set_point=0):
@@ -221,39 +205,54 @@ class Controller:
 		self.Ki = I
 		self.Kd = D
 		self.set_point = set_point # reference (desired value)
-		self.previous_error = [] # list for storing previous data points
+		self.numPreviousErrorSaved = 25
+		self.previous_error = [0] * self.numPreviousErrorSaved # list for storing previous data points
 		self.time_between_positions = 0.1 # seconds
 	
 	def update(self, current_value):
 			
+		print("Current location is: " + str(current_value*180/pi))
+		print("Set point is: " + str(self.set_point*180/pi))
+
 		error = self.set_point - current_value
-		
+
+		print("Error: " + str(error))
+	
 		# calculate P_term, I_term, and D_term	
 		P_term = error * self.Kp
 		
-		D_term = ((self.previous_error - error) / self.time_between_positions) * self.Kd
-		
+		D_term = ((self.previous_error[0] - error) / self.time_between_positions) * self.Kd
+
+		# print("Length of error list: " + str(len(self.previous_error)))
 		sumError = 0
-		for error in self.previous_error:
-			sumError = sumError + error
-		I_term = Ki * sumError
+		for previousErrorInList in self.previous_error:
+			sumError = sumError + previousErrorInList
+		
+		# print("Summed Error: " + str(sumError))
+		
+		I_term = self.Ki * sumError
 
-		self.previous_error.insert(error, 0)
+		self.previous_error.insert(0, error)
 
-		if len(self.previous_error) >= 10:
-			removedItem = self.previous_error.pop(10)
+		removedItem = self.previous_error.pop()
+
+		# print("P Term: " + str(P_term))
+		# print("I Term: " + str(I_term))
+		# print("D Term: " + str(D_term))
+
+		print("Force Applied: " + str(P_term + D_term + I_term))
 		return P_term + D_term + I_term
 	
 	def setPoint(self, set_point):
 		self.set_point = set_point
-		self.previous_error = 0
+		self.previous_error = [0] * self.numPreviousErrorSaved
 	
-	def setPID(self, P=0.0, D=0.0, I=0.0):
-		self.Kp = P
-		self.Kd = D
-		self.Ki = I
+	def setPID(self, parameters):
+		self.Kp = parameters[0]		
+		self.Ki = parameters[1]
+		self.Kd = parameters[2]
 
-	def getPreviousError()
+	def getPreviousError(self):
 		return self.previous_error[0]
 
 
