@@ -9,11 +9,18 @@ from std_msgs.msg import Empty, Float64
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, Pose2D
 from sensor_msgs.msg import JointState
+# from rrpIK.srv import rrpIK
 
 class positionController():
 	def __init__(self):
 		rospy.init_node("position_controller")
 		rospy.loginfo("Press Ctrl + C to terminate")
+
+		# IK_SERVICE_NAME = "inverse_kinematics"
+
+		# rospy.wait_for_service(IK_SERVICE_NAME)
+
+		# self.ik_service = rospy.ServiceProxy(IK_SERVICE_NAME, rrpIK)
 
 		self.numJoints = 3
 
@@ -21,13 +28,16 @@ class positionController():
 
 		self.jointEfforts = [0] * self.numJoints 
 		self.joint_pubs = [0] * self.numJoints
-		self.rate = rospy.Rate(1)
+		self.rate = rospy.Rate(100)
 
 		self.joint_controllers = [0] * self.numJoints
 
 		self.jointErrorWithinBounds = [False] * self.numJoints
 
-		self.joint_controller_parameters = [[.5, .075, .2], [.5, .075, .2], [.2, .1, .0]]
+		#									 8.5, .75, 200
+		self.joint_controller_parameters = [[20, .000, 200], [5.0, .000, 200.0], [80., 1.11, 25.0]]
+		# self.joint_controller_parameters = [[0, .000, 00], [.0, .000, 00.0], [80., 1.11, 25.0]]
+		self.joint_errorBands = [.15, .15, .05]
 
 		for i in range(self.numJoints):
 			
@@ -47,9 +57,9 @@ class positionController():
 							[-0.67, -0.245, 0.14], \
 							[0.77, 0.0, 0.39]]
 
-		self.testIKSolutions = [[90 * degToRad, 0, 0.1], \
+		self.testIKSolutions = [[90 * degToRad, 00 * degToRad, 0.1], \
 								[90 * degToRad, 90 * degToRad, .2], \
-								[-179.716 * degToRad, 44.468 * degToRad, .3], \
+								[45 * degToRad, 45 * degToRad, .3], \
 								[0, 0 , .05]]
 		
 		self.endEffectorPath = [0] * self.numPoints
@@ -80,6 +90,7 @@ class positionController():
 		self.jointPositions = [0] * self.numJoints
 
 
+		
 		print("Start of tragjectory movement.")
 		while not rospy.is_shutdown() and not self.trajectoryCompleteFlag:
 			
@@ -101,6 +112,7 @@ class positionController():
 	
 	def run(self):
 
+		print("Current Destination Reached: " + str(self.destinationsReached[self.destinationIndex]))
 		# if it is the first time through the function and the destination has not been reached yet
 		if self.firstPassOnDestination and not self.destinationsReached[self.destinationIndex]:
 			
@@ -136,14 +148,19 @@ class positionController():
 
 		# Calculate new joint efforts and  error bounding flags
 		for i in range(self.numJoints):
-			print("Joint "+str(i))
+
 			controller = self.joint_controllers[i]
 						
 			# Calculate new joint effort from controller
 			self.jointEfforts[i].data = controller.update(self.jointPositions[i])
 			
 			# Check if the joint position has been reached
-			self.jointErrorWithinBounds[i] = abs(controller.getPreviousError()) <= self.errorBand
+			self.jointErrorWithinBounds[i] = abs(controller.getPreviousError()) <= self.joint_errorBands[i]
+
+			if i == 6:
+				print("Joint "+str(i+1))
+				print("Error: "+str(controller.getPreviousError()))
+				print("Force Applied: "+str(self.jointEfforts[i].data))
 
 		# Check if all joint destinations have been reached
 		destinationReached = True
@@ -158,6 +175,7 @@ class positionController():
 
 		# Calculate Inverse Kinematics of destination
 		self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
+		# self.jointDestinations = self.ik_services.call(rrpIK(self.endEffectorPath[self.destinationIndex]))
 
 		for i in range(self.numJoints):
 			self.joint_controllers[i].setPoint(self.jointDestinations[i])
@@ -188,19 +206,19 @@ class positionController():
 
 		# logging once every 100 times
 		self.logging_counter += 1
-		if self.logging_counter == 100:
+		if self.logging_counter == 100000000:
 			self.logging_counter = 0
 			# save trajectory
 			self.trajectory.append(self.jointPositions)
 			rospy.loginfo("Joint 1 =" + str(self.jointPositions[0]*180/pi) + \
 				"; Joint 2 = " + str(self.jointPositions[1]*180/pi) + \
-				"; Joint 3 =" + str(self.jointPositions[2]*180/pi))
+				"; Joint 3 =" + str(self.jointPositions[2]))
 
 	def IKserverDummy(self, coordinate, pointIndex):
 		return self.testIKSolutions[pointIndex]
 
 class Controller:
-	def __init__(self, P=0.0, I=0.0, D=0.0, set_point=0):
+	def __init__(self, P=0.0, I=0.0, D=0.0, set_point=0, error_band=0):
 		self.Kp = P
 		self.Ki = I
 		self.Kd = D
@@ -208,20 +226,21 @@ class Controller:
 		self.numPreviousErrorSaved = 25
 		self.previous_error = [0] * self.numPreviousErrorSaved # list for storing previous data points
 		self.time_between_positions = 0.1 # seconds
+		self.errorBand = error_band
 	
 	def update(self, current_value):
 			
-		print("Current location is: " + str(current_value*180/pi))
-		print("Set point is: " + str(self.set_point*180/pi))
+		# print("Current location is: " + str(current_value))
+		# print("Set point is: " + str(self.set_point))
 
 		error = self.set_point - current_value
 
-		print("Error: " + str(error))
+		# print("Error: " + str(error))
 	
 		# calculate P_term, I_term, and D_term	
 		P_term = error * self.Kp
 		
-		D_term = ((self.previous_error[0] - error) / self.time_between_positions) * self.Kd
+		D_term = ((error - self.previous_error[0]) / self.time_between_positions) * self.Kd
 
 		# print("Length of error list: " + str(len(self.previous_error)))
 		sumError = 0
@@ -240,8 +259,11 @@ class Controller:
 		# print("I Term: " + str(I_term))
 		# print("D Term: " + str(D_term))
 
-		print("Force Applied: " + str(P_term + D_term + I_term))
-		return P_term + D_term + I_term
+		# print("Force Applied: " + str(P_term + D_term + I_term))
+		returnValue = P_term + D_term + I_term
+
+		
+		return returnValue
 	
 	def setPoint(self, set_point):
 		self.set_point = set_point
