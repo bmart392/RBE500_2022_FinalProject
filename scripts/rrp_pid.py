@@ -9,18 +9,18 @@ from std_msgs.msg import Empty, Float64
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, Pose2D
 from sensor_msgs.msg import JointState
-# from rrpIK.srv import rrpIK
+from rbe500_project.srv import rrpIK
 
 class positionController():
 	def __init__(self):
 		rospy.init_node("position_controller")
 		rospy.loginfo("Press Ctrl + C to terminate")
 
-		# IK_SERVICE_NAME = "inverse_kinematics"
+		IK_SERVICE_NAME = "IK"
 
-		# rospy.wait_for_service(IK_SERVICE_NAME)
+		rospy.wait_for_service(IK_SERVICE_NAME)
 
-		# self.ik_service = rospy.ServiceProxy(IK_SERVICE_NAME, rrpIK)
+		self.ik_service = rospy.ServiceProxy(IK_SERVICE_NAME, rrpIK)
 
 		self.numJoints = 3
 
@@ -34,7 +34,7 @@ class positionController():
 
 		self.jointErrorWithinBounds = [False] * self.numJoints
 
-		self.joint_to_monitor = 2
+		self.joint_to_monitor = 6
 
 		#									 5, .000, 750.				700		  205    65.5  1575	
 		self.joint_controller_parameters = [[2.5, .000, 600.], [1.5, .000, 450.0], [70.00, 9.8, 425.00]]
@@ -85,6 +85,8 @@ class positionController():
 		self.trajectory = list()
 		self.joint_status_sub = rospy.Subscriber("/rrp/joint_states", JointState, self.joint_state_callback)
 
+		# self.stored_points = list()
+
 		
 		self.firstPassOnDestination = True
 		self.destinationIndex = 0
@@ -120,9 +122,10 @@ class positionController():
 				rospy.loginfo("Action terminated.")
 			
 			finally:
-				# save trajectory into csv file
+				
+				# save trajectory into csv file					
 				np.savetxt("trajectory.csv", np.array(self.trajectory), fmt="%f", delimiter=",")
-
+				
 				print("Length of program: " + str(self.num_loops/100))
 				
 	
@@ -192,9 +195,17 @@ class positionController():
 	def runFirstPassForDestination(self):
 
 		# Calculate Inverse Kinematics of destination
-		print(self.destinationIndex)
-		self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
-		# self.jointDestinations = self.ik_services.call(rrpIK(self.endEffectorPath[self.destinationIndex][0], self.endEffectorPath[self.destinationIndex][1], self.endEffectorPath[self.destinationIndex][2]))
+		print(self.endEffectorPath[self.destinationIndex][0])
+		print(self.endEffectorPath[self.destinationIndex][1])
+		print(self.endEffectorPath[self.destinationIndex][2])
+		# self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
+		
+		response = self.ik_service(\
+			float(self.endEffectorPath[self.destinationIndex][0]), \
+			float(self.endEffectorPath[self.destinationIndex][1]), \
+			float(self.endEffectorPath[self.destinationIndex][2]))
+
+		self.jointDestinations = [response.theta1, response.theta2, response.d3]
 
 		for i in range(self.numJoints):
 			self.joint_controllers[i].setPoint(self.jointDestinations[i])
@@ -219,16 +230,18 @@ class positionController():
 
 
 	def joint_state_callback(self, msg):
+
 		# Get position for each joint
 		for i in range(self.numJoints):
 			self.jointPositions[i] = float(msg.position[i])
 
 		# logging once every 100 times
 		self.logging_counter += 1
-		if self.logging_counter == 75:
+		print(self.logging_counter)
+		if self.logging_counter == 50:
 			
 			# save trajectory
-			self.trajectory.append(self.jointPositions)
+			self.trajectory.append([self.jointPositions[0], self.jointPositions[1], self.jointPositions[2]])
 			rospy.loginfo("Joint 1 =" + str(self.jointPositions[0]*180/pi) + \
 				"; Joint 2 = " + str(self.jointPositions[1]*180/pi) + \
 				"; Joint 3 =" + str(self.jointPositions[2]))
