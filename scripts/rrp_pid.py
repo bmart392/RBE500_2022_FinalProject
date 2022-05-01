@@ -37,7 +37,7 @@ class positionController():
 		self.joint_to_monitor = 3
 
 		#									 5, .000, 750.						  205    65.5  1575	
-		self.joint_controller_parameters = [[5, .000, 750.], [5.0, .000, 700.0], [70.00, 10., 425.00]]
+		self.joint_controller_parameters = [[5, .000, 750.], [5.0, .000, 700.0], [70.00, 9.8, 425.00]]
 		# self.joint_controller_parameters = [[0, .000, 00], [.0, .000, 00.0], [200., 50, 1000.0]]
 		self.joint_errorBands = [.05, .05, .002]
 
@@ -61,11 +61,18 @@ class positionController():
 							[-0.67, -0.245, 0.14], \
 							[0.77, 0.0, 0.39]]
 
-		self.testIKSolutions = [[0 * degToRad, 0 * degToRad, .05], \
+		"""self.testIKSolutions = [[0 * degToRad, 0 * degToRad, .05], \
 								[0 * degToRad, 0 * degToRad, .25], \
 								[0 * degToRad, 0 * degToRad, .05], \
 								[0 * degToRad, 0 * degToRad, .25]]
+		"""
 		
+		self.testIKSolutions = [[.745, .089, .05], \
+								[.748, .79, .15], \
+								[0, 1.57, .1], \
+								[3.14, 1.57, .15]]
+		
+
 		self.endEffectorPath = [0] * self.numPoints
 		self.destinationsReached = [False] * self.numPoints
 
@@ -221,7 +228,6 @@ class positionController():
 				"; Joint 2 = " + str(self.jointPositions[1]*180/pi) + \
 				"; Joint 3 =" + str(self.jointPositions[2]))
 
-			print("Log Counter reset.")
 			self.logging_counter = 0
 
 	def IKserverDummy(self, coordinate, pointIndex):
@@ -290,7 +296,7 @@ class Controller:
 		if self.isPrismatic and error < 0:
 
 			# add constant values to account for the weight of the arm when moving up
-			returnValue = returnValue - .981 - 1.15
+			returnValue = returnValue - .981 - 1.19
 		
 		return returnValue
 	
