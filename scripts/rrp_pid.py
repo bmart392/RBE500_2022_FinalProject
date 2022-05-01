@@ -34,12 +34,12 @@ class positionController():
 
 		self.jointErrorWithinBounds = [False] * self.numJoints
 
-		self.joint_to_monitor = 3
+		self.joint_to_monitor = 2
 
-		#									 5, .000, 750.						  205    65.5  1575	
-		self.joint_controller_parameters = [[5, .000, 750.], [5.0, .000, 700.0], [70.00, 9.8, 425.00]]
+		#									 5, .000, 750.				700		  205    65.5  1575	
+		self.joint_controller_parameters = [[2.5, .000, 600.], [1.5, .000, 450.0], [70.00, 9.8, 425.00]]
 		# self.joint_controller_parameters = [[0, .000, 00], [.0, .000, 00.0], [200., 50, 1000.0]]
-		self.joint_errorBands = [.05, .05, .002]
+		self.joint_errorBands = [.15, .15, .002]
 
 		for i in range(self.numJoints):
 			
@@ -100,6 +100,8 @@ class positionController():
 
 		self.jointPositions = [0] * self.numJoints
 
+		self.num_loops = 0
+
 
 		
 		print("Start of tragjectory movement.")
@@ -112,6 +114,7 @@ class positionController():
 
 				# Sleep until ready to send next command
 				self.rate.sleep()
+				self.num_loops = self.num_loops + 1
 			
 			except rospy.ROSInterruptException:
 				rospy.loginfo("Action terminated.")
@@ -119,6 +122,8 @@ class positionController():
 			finally:
 				# save trajectory into csv file
 				np.savetxt("trajectory.csv", np.array(self.trajectory), fmt="%f", delimiter=",")
+
+				print("Length of program: " + str(self.num_loops/100))
 				
 	
 	def run(self):
@@ -139,7 +144,7 @@ class positionController():
 				
 				# If the robot has remained at the target for the goal number of iterations
 				# if self.numTimesAtIteration >= self.goalTimesAtIteration:
-				if self.logging_counter == 0:
+				if self.logging_counter == 0 and self.numTimesAtIteration > 100:
 					print("Destination " + str(self.destinationIndex) + " finally reached.")
 					self.runLastPassForDestination()
 					
@@ -189,7 +194,7 @@ class positionController():
 		# Calculate Inverse Kinematics of destination
 		print(self.destinationIndex)
 		self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
-		# self.jointDestinations = self.ik_services.call(rrpIK(self.endEffectorPath[self.destinationIndex]))
+		# self.jointDestinations = self.ik_services.call(rrpIK(self.endEffectorPath[self.destinationIndex][0], self.endEffectorPath[self.destinationIndex][1], self.endEffectorPath[self.destinationIndex][2]))
 
 		for i in range(self.numJoints):
 			self.joint_controllers[i].setPoint(self.jointDestinations[i])
@@ -220,7 +225,7 @@ class positionController():
 
 		# logging once every 100 times
 		self.logging_counter += 1
-		if self.logging_counter == 100:
+		if self.logging_counter == 75:
 			
 			# save trajectory
 			self.trajectory.append(self.jointPositions)
