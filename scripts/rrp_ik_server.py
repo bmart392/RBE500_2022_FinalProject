@@ -35,7 +35,7 @@ def InverseKinematics(x, y, z):
 
 def getIK():
     rospy.init_node('IK_Server')
-    s = rospy.Service('add_two_ints', rrpIK, InverseKinematics)
+    s = rospy.Service('IK', rrpIK, InverseKinematics)
     print("Ready to get IK")
     rospy.spin()
 
