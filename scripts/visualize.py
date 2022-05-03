@@ -17,5 +17,6 @@ def visualization():
     plt.ylabel('Joint Angles')
     plt.show()
 
+
 if __name__ == '__main__':
     visualization()
