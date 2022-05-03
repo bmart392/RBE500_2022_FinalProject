@@ -5,16 +5,22 @@ import matplotlib.pyplot as plt
 
 def visualization():
     # load csv file and plot trajectory
-    _, ax = plt.subplots(1)
-    ax.set_aspect('equal')
     trajectory = np.loadtxt("trajectory.csv", delimiter=',')
-    plt.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], linewidth=2)
-    plt.xlim(-10, 10)
-    plt.ylim(-10, 10)
-    plt.minorticks_on()
-    plt.grid(which='both')
-    plt.xlabel('Points')
-    plt.ylabel('Joint Angles')
+    
+    plot_limits = [[-3.14, 3.14], [-3.14, 3.14], [-.1, .35]]
+    plot_y_labels = ["Position (radians)", "Position (radians)", "Position (meters)"]
+
+    figure, axis = plt.subplots(3,1)
+
+    figure.suptitle("Joint Positions through Trajectory")
+
+    for index in range(3):
+        axis[index].plot(trajectory[:,index], linewidth=2)
+        plt.ylim(plot_limits[index][0], plot_limits[index][1])
+        axis[index].minorticks_on()
+        axis[index].grid(which='both')
+        axis[index].set_xlabel('Time')
+        axis[index].set_ylabel(plot_y_labels[index])
     plt.show()
 
 

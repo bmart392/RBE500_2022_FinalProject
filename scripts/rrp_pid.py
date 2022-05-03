@@ -37,9 +37,10 @@ class positionController():
 		self.joint_to_monitor = 6
 
 		#									 5, .000, 750.				700		  205    65.5  1575	
-		self.joint_controller_parameters = [[2.5, .000, 600.], [1.5, .000, 450.0], [70.00, 9.8, 425.00]]
+		self.joint_controller_parameters = [[4., .025, 725.], [2, .018, 725.0], [70.00, 9.8, 425.00]]
 		# self.joint_controller_parameters = [[0, .000, 00], [.0, .000, 00.0], [200., 50, 1000.0]]
-		self.joint_errorBands = [.15, .15, .002]
+		self.joint_errorBands = [.085, .085, .002]
+		self.controllerMaxEfforts = [8, 25, 25]
 
 		for i in range(self.numJoints):
 			
@@ -50,6 +51,7 @@ class positionController():
 			# Initialize PID controllers for each joint			
 			self.joint_controllers[i] = Controller()
 			self.joint_controllers[i].setPID(self.joint_controller_parameters[i])
+			self.joint_controllers[i].setMaxEffort(self.controllerMaxEfforts[i])
 			if i == 2:
 				self.joint_controllers[i].setPrismatic()
 
@@ -126,7 +128,7 @@ class positionController():
 				# save trajectory into csv file					
 				np.savetxt("trajectory.csv", np.array(self.trajectory), fmt="%f", delimiter=",")
 				
-				print("Length of program: " + str(self.num_loops/100))
+		print("Length of program: " + str(self.num_loops/100))
 				
 	
 	def run(self):
@@ -147,7 +149,7 @@ class positionController():
 				
 				# If the robot has remained at the target for the goal number of iterations
 				# if self.numTimesAtIteration >= self.goalTimesAtIteration:
-				if self.logging_counter == 0 and self.numTimesAtIteration > 100:
+				if (self.logging_counter == 0 and self.numTimesAtIteration > 100) or self.numTimesAtIteration > 200:
 					print("Destination " + str(self.destinationIndex) + " finally reached.")
 					self.runLastPassForDestination()
 					
@@ -178,10 +180,18 @@ class positionController():
 			# Check if the joint position has been reached
 			self.jointErrorWithinBounds[i] = abs(controller.getPreviousError()) <= self.joint_errorBands[i]
 
-			if i == self.joint_to_monitor -1:
-				print("Joint "+str(i+1))
-				print("Error: "+str(controller.getPreviousError()))
-				print("Force Applied: "+str(self.jointEfforts[i].data))
+			previousErrorValue = round(controller.getPreviousError(),4)
+			previousErrorString = str(previousErrorValue)
+			if len(previousErrorString) < 7:
+				previousErrorString = previousErrorString + "0"*(7-len(previousErrorString))
+			jointEffortValue = round(self.jointEfforts[i].data,4)
+			jointEffortString = str(jointEffortValue)
+			if len(jointEffortString) < 7:
+				jointEffortString = jointEffortString + "0"*(7-len(jointEffortString))
+
+			"""print("Joint "+str(i+1) + \
+				" - Error: " + previousErrorString + \
+				" - Force Applied: " + jointEffortString)"""
 
 		# Check if all joint destinations have been reached
 		destinationReached = True
@@ -195,9 +205,6 @@ class positionController():
 	def runFirstPassForDestination(self):
 
 		# Calculate Inverse Kinematics of destination
-		print(self.endEffectorPath[self.destinationIndex][0])
-		print(self.endEffectorPath[self.destinationIndex][1])
-		print(self.endEffectorPath[self.destinationIndex][2])
 		# self.jointDestinations = self.IKserverDummy(self.endEffectorPath[self.destinationIndex], self.destinationIndex)
 		
 		response = self.ik_service(\
@@ -237,7 +244,6 @@ class positionController():
 
 		# logging once every 100 times
 		self.logging_counter += 1
-		print(self.logging_counter)
 		if self.logging_counter == 50:
 			
 			# save trajectory
@@ -252,7 +258,7 @@ class positionController():
 		return self.testIKSolutions[pointIndex]
 
 class Controller:
-	def __init__(self, P=0.0, I=0.0, D=0.0, set_point=0, error_band=0,is_prismatic=False):
+	def __init__(self, P=0.0, I=0.0, D=0.0, set_point=0, error_band=0,is_prismatic=False, max_effort=10000):
 		self.Kp = P
 		self.Ki = I
 		self.Kd = D
@@ -261,6 +267,7 @@ class Controller:
 		self.previous_error = [0] * self.numPreviousErrorSaved # list for storing previous data points
 		self.errorBand = error_band
 		self.isPrismatic = is_prismatic
+		self.maxEffort = max_effort
 	
 
 	def update(self, current_value):
@@ -314,8 +321,11 @@ class Controller:
 		if self.isPrismatic and error < 0:
 
 			# add constant values to account for the weight of the arm when moving up
-			returnValue = returnValue - .981 - 1.19
+			returnValue = returnValue - .981 - 1.2
 		
+		if abs(returnValue) > self.maxEffort:
+			returnValue = self.maxEffort * (abs(returnValue)/returnValue)
+
 		return returnValue
 	
 	def setPoint(self, set_point):
@@ -333,7 +343,8 @@ class Controller:
 	def setPrismatic(self):
 		self.isPrismatic = True
 
-
+	def setMaxEffort(self, max_effort):
+		self.maxEffort = max_effort
 
 if __name__ == "__main__":
 	whatever = positionController()
